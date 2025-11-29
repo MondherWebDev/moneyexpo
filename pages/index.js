@@ -4,7 +4,7 @@ import { getVisitorsCache, saveVisitorsCache, getOfflineCache, saveOfflineCache,
 
 const defaultToken = "f9c8ad6db3f6aabf2744f416623bd55f8c4b91b3";
 const defaultBase = "https://moneyexpoglobal.com";
-const defaultProxy = "https://moneyexpo-badges.netlify.app/.netlify/functions/proxy?url=";
+const defaultProxy = "https://moneyexpo.vercel.app/api/proxy?url=";
 const pageSize = 100;
 
 export default function Home() {

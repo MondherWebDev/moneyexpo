@@ -4,7 +4,7 @@ import { getOfflineCache, getCheckinsCache, saveCheckinsCache } from "../lib/db"
 
 const defaultBase = "https://moneyexpoglobal.com";
 const defaultToken = "f9c8ad6db3f6aabf2744f416623bd55f8c4b91b3";
-const defaultProxy = "https://moneyexpo-badges.netlify.app/.netlify/functions/proxy?url=";
+const defaultProxy = "https://moneyexpo.vercel.app/api/proxy?url=";
 
 export default function Checkin() {
   const [base, setBase] = useState(defaultBase);
