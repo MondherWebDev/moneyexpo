@@ -38,7 +38,9 @@ export default function Home() {
         const saved = JSON.parse(localStorage.getItem("badgeSettings") || "{}");
         const savedBase = saved.base && saved.base.trim() ? saved.base : defaultBase;
         const savedToken = saved.token && saved.token.trim() ? saved.token : defaultToken;
-        const savedProxy = saved.proxy && saved.proxy.trim() ? saved.proxy : defaultProxy;
+        const rawProxy = saved.proxy && saved.proxy.trim();
+        const savedProxy =
+          rawProxy && !rawProxy.toLowerCase().includes("netlify") ? rawProxy : defaultProxy;
         setBase(savedBase);
         setToken(savedToken);
         setProxy(savedProxy);
@@ -571,7 +573,7 @@ export default function Home() {
         />
         <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
       </Head>
-      <div id="app" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12 text-white">
+      <div id="app" className="w-full px-4 sm:px-6 lg:px-8 pb-12 text-white">
         <header className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6 rounded-2xl p-5 shadow-2xl bg-gradient-to-r from-magenta/40 via-violet/30 to-navy/70 border border-white/10">
           <div className="flex items-center gap-4 min-w-[260px]">
             <img src="/MoneyExpo.jpeg" alt="Money Expo Qatar" className="w-32 rounded-2xl shadow-2xl ring-2 ring-white/10" />
@@ -734,22 +736,6 @@ export default function Home() {
               </div>
             )}
 
-            <div className="flex flex-wrap gap-2 pt-2">
-              {tabList.map(({ cat, count }) => (
-                <button
-                  key={cat}
-                  className={`px-4 py-2 rounded-full text-sm font-semibold border transition ${
-                    activeTab === cat
-                      ? "bg-gradient-to-r from-magenta to-violet text-white border-transparent shadow-lg"
-                      : "bg-white text-navy border-white/60"
-                  }`}
-                  onClick={() => setActiveTab(cat)}
-                >
-                  {cat}
-                  {count ? ` (${count})` : ""}
-                </button>
-              ))}
-            </div>
           </div>
         </section>
 
@@ -775,6 +761,22 @@ export default function Home() {
 
         <section>
           <div className="bg-white rounded-2xl shadow-xl p-4 text-textmain">
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              {tabList.map(({ cat, count }) => (
+                <button
+                  key={cat}
+                  className={`px-4 py-2 rounded-full text-sm font-semibold border transition ${
+                    activeTab === cat
+                      ? "bg-gradient-to-r from-magenta to-violet text-white border-transparent shadow-lg"
+                      : "bg-white text-navy border-slate-200"
+                  }`}
+                  onClick={() => setActiveTab(cat)}
+                >
+                  {cat}
+                  {count ? ` (${count})` : ""}
+                </button>
+              ))}
+            </div>
             <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
               <div>
                 <h2 className="text-xl font-bold m-0">Visitors</h2>

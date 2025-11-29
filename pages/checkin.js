@@ -29,7 +29,9 @@ export default function Checkin() {
         const saved = JSON.parse(localStorage.getItem("badgeSettings") || "{}");
         const savedBase = saved.base && saved.base.trim() ? saved.base : defaultBase;
         const savedToken = saved.token && saved.token.trim() ? saved.token : defaultToken;
-        const savedProxy = saved.proxy && saved.proxy.trim() ? saved.proxy : defaultProxy;
+        const rawProxy = saved.proxy && saved.proxy.trim();
+        const savedProxy =
+          rawProxy && !rawProxy.toLowerCase().includes("netlify") ? rawProxy : defaultProxy;
         setBase(savedBase);
         setToken(savedToken);
         setProxy(savedProxy);
