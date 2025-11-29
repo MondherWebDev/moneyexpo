@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply min-h-screen text-white;
+    font-family: "Space Grotesk", "Segoe UI", sans-serif;
+    background: radial-gradient(circle at 20% 20%, rgba(240, 45, 138, 0.06), rgba(26, 21, 63, 0) 32%),
+      radial-gradient(circle at 80% 10%, rgba(106, 43, 184, 0.06), rgba(12, 12, 24, 0) 28%),
+      linear-gradient(180deg, #0c0a1f 0%, #0a0a1a 60%, #0a0a18 100%);
+  }
+}
+
+#print-area {
+  display: none;
+}
+
+@media print {
+  body {
+    margin: 0;
+    background: #fff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  #app {
+    display: none;
+  }
+  #print-area {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(10.2cm, 1fr));
+    gap: 10mm;
+    padding: 12mm;
+  }
+  .print-badge {
+    position: relative;
+    width: 10cm;
+    height: 13.5cm;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    background-color: #fff;
+    background-image: url("/badge-template.png");
+    background-size: cover;
+    background-repeat: no-repeat;
+    background-position: center top;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    color: #0c1027;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    page-break-inside: avoid;
+    overflow: hidden;
+  }
+  .print-badge .badge-info {
+    position: absolute;
+    top: 56%;
+    left: 50%;
+    transform: translate(-50%, -42%);
+    width: 82%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 8px;
+  }
+  .badge-actions {
+    display: none !important;
+  }
+  .print-badge .qr {
+    width: 3.2cm;
+    height: 3.2cm;
+    margin-top: auto;
+  }
+}

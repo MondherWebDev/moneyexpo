@@ -1,0 +1,15 @@
+{
+  "name": "MoneyExpo Badge Control",
+  "short_name": "MEQ Badges",
+  "start_url": "/checkin",
+  "display": "standalone",
+  "background_color": "#0a0a1a",
+  "theme_color": "#0a0a1a",
+  "icons": [
+    {
+      "src": "/MoneyExpo.jpeg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    }
+  ]
+}
