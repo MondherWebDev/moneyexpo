@@ -100,18 +100,34 @@ export default function Checkin() {
 
   function normalizeRecords(payload) {
     if (!payload) return [];
-    const rawList = Array.isArray(payload)
-      ? payload
-      : Array.isArray(payload.data)
-      ? payload.data
-      : Array.isArray(payload.visitors)
-      ? payload.visitors
-      : Array.isArray(payload.result)
-      ? payload.result
-      : payload.data && Array.isArray(payload.data.records)
-      ? payload.data.records
-      : [payload];
-    return rawList.map(normalizeRecord).filter((r) => r.id);
+    const candidates = [
+      payload,
+      payload.data,
+      payload.data?.data,
+      payload.data?.records,
+      payload.data?.data?.records,
+      payload.visitors,
+      payload.result,
+      payload.records,
+    ];
+
+    function findArray(node, depth = 0) {
+      if (!node || depth > 4) return null;
+      if (Array.isArray(node)) return node;
+      if (typeof node !== "object") return null;
+      for (const val of Object.values(node)) {
+        const found = findArray(val, depth + 1);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    const foundArray = candidates.find((c) => Array.isArray(c)) || findArray(payload);
+    if (foundArray) {
+      return foundArray.map(normalizeRecord).filter((r) => r.id);
+    }
+    const obj = payload?.data || payload;
+    return [obj].map(normalizeRecord).filter((r) => r.id);
   }
 
   function normalizeRecord(raw) {
@@ -122,10 +138,12 @@ export default function Checkin() {
       raw.registration_id ||
       raw.ticket_id ||
       raw.uuid ||
-      raw.code;
+      raw.code ||
+      raw.attendee?.id;
     const name =
       raw.full_name ||
       raw.name ||
+      raw.attendee?.full_name ||
       `${raw.first_name || ""} ${raw.last_name || ""}`.trim() ||
       raw.email ||
       "Unknown";
@@ -257,10 +275,23 @@ export default function Checkin() {
         <div className="max-w-3xl mx-auto flex flex-col gap-4">
           <div className="bg-navy2 border border-white/10 rounded-2xl p-5 shadow-xl">
             <p className="uppercase tracking-[0.14em] text-aqua font-semibold text-sm mb-1">MEQ2025</p>
-            <h2 className="text-2xl font-bold mb-1">Check-in / Check-out</h2>
-            <p className="text-white/70 text-sm">
-              Use visitor QR for lead capture + check-in/out. Other categories: QR for check-in/out only.
-            </p>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-2xl font-bold mb-1">Check-in / Check-out</h2>
+                <p className="text-white/70 text-sm">
+                  Use visitor QR for lead capture + check-in/out. Other categories: QR for check-in/out only.
+                </p>
+              </div>
+              <button
+                onClick={async () => {
+                  await fetch("/api/logout", { method: "POST" });
+                  window.location.href = "/login";
+                }}
+                className="bg-white/15 text-white font-semibold rounded-xl px-4 py-2 border border-white/30 hover:bg-white/20 transition h-10"
+              >
+                Logout
+              </button>
+            </div>
           </div>
 
           <section className="bg-navy2 border border-white/10 rounded-2xl p-5 shadow-xl flex flex-col gap-3">

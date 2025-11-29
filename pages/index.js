@@ -220,6 +220,10 @@ export default function Home() {
       setSelectedIds(new Set());
       if (merged[0]) setSelected(merged[0]);
       setStatus(`Loaded ${merged.length} result(s) (including offline) for "${term}".`);
+      if (merged.length === 0) {
+        // Surface a hint in the status and console for easier debugging in the field.
+        console.warn("Search returned no normalized records. Raw payload:", payload);
+      }
     } catch (err) {
       setStatus(err.message, "error");
     }
@@ -229,18 +233,35 @@ export default function Home() {
 
   function normalizeRecords(payload) {
     if (!payload) return [];
-    const rawList = Array.isArray(payload)
-      ? payload
-      : Array.isArray(payload.data)
-      ? payload.data
-      : Array.isArray(payload.visitors)
-      ? payload.visitors
-      : Array.isArray(payload.result)
-      ? payload.result
-      : payload.data && Array.isArray(payload.data.records)
-      ? payload.data.records
-      : [payload];
-    return rawList.map(normalizeRecord).filter((r) => r.id);
+    const candidates = [
+      payload,
+      payload.data,
+      payload.data?.data,
+      payload.data?.records,
+      payload.data?.data?.records,
+      payload.visitors,
+      payload.result,
+      payload.records,
+    ];
+
+    // Walk object graph up to depth 4 to locate the first array if predefined slots miss.
+    function findArray(node, depth = 0) {
+      if (!node || depth > 4) return null;
+      if (Array.isArray(node)) return node;
+      if (typeof node !== "object") return null;
+      for (const val of Object.values(node)) {
+        const found = findArray(val, depth + 1);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    const foundArray = candidates.find((c) => Array.isArray(c)) || findArray(payload);
+    if (foundArray) {
+      return foundArray.map(normalizeRecord).filter((r) => r.id);
+    }
+    const obj = payload?.data || payload;
+    return [obj].map(normalizeRecord).filter((r) => r.id);
   }
 
   function normalizeRecord(raw) {
@@ -251,10 +272,12 @@ export default function Home() {
       raw.registration_id ||
       raw.ticket_id ||
       raw.uuid ||
-      raw.code;
+      raw.code ||
+      raw.attendee?.id;
     const name =
       raw.full_name ||
       raw.name ||
+      raw.attendee?.full_name ||
       `${raw.first_name || ""} ${raw.last_name || ""}`.trim() ||
       raw.email ||
       "Unknown";
@@ -361,7 +384,7 @@ export default function Home() {
       });
     }
     window.print();
-    markPrintedBatch(items);
+    // Do not auto-mark as printed to avoid API errors when print is canceled.
   }
 
   async function markPrintedBatch(records) {
@@ -395,6 +418,13 @@ export default function Home() {
       setVisitors(updated);
       if (!silent) setStatus("Badge marked as PRINTED.");
     } catch (err) {
+      const msg = String(err.message || "");
+      if (msg.includes("422")) {
+        if (!silent) {
+          setStatus("Print status update was rejected (already printed or invalid payload). Badge kept as-is.", "error");
+        }
+        return;
+      }
       if (!silent) setStatus(err.message, "error");
       throw err;
     }
@@ -531,9 +561,9 @@ export default function Home() {
         <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
       </Head>
       <div id="app" className="w-full px-4 sm:px-6 lg:px-8 pb-12 text-white">
-        <header className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6 rounded-2xl p-5 shadow-2xl bg-gradient-to-r from-magenta/40 via-violet/30 to-navy/70 border border-white/10">
+        <header className="mt-1 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6 rounded-2xl p-5 shadow-2xl bg-gradient-to-r from-magenta/40 via-violet/30 to-navy/70 border border-white/10">
           <div className="flex items-center gap-4 min-w-[260px]">
-            <img src="/MoneyExpo.jpeg" alt="Money Expo Qatar" className="w-32 rounded-2xl shadow-2xl ring-2 ring-white/10" />
+            <img src="/MoneyExpo.jpeg" alt="Money Expo Qatar" className="w-32 rounded-2xl shadow-2xl" />
             <div>
               <p className="uppercase tracking-[0.16em] font-bold text-aqua text-sm mb-1">MEQ2025</p>
               <h1 className="text-3xl font-bold text-white leading-tight m-0">Badge Printing Control</h1>
@@ -546,6 +576,15 @@ export default function Home() {
               className="bg-gradient-to-r from-magenta to-violet text-white font-bold rounded-xl px-4 py-2 shadow-lg hover:-translate-y-[1px] transition"
             >
               Bulk print selected
+            </button>
+            <button
+              onClick={async () => {
+                await fetch("/api/logout", { method: "POST" });
+                window.location.href = "/login";
+              }}
+              className="bg-white/15 text-white font-semibold rounded-xl px-4 py-2 border border-white/30 hover:bg-white/20 transition"
+            >
+              Logout
             </button>
           </div>
         </header>
@@ -753,9 +792,9 @@ export default function Home() {
                 </button>
               </div>
             </div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto rounded-xl">
               <table className="w-full border-collapse min-w-full">
-                <thead className="bg-navy text-white">
+                <thead className="bg-navy text-white rounded-t-xl">
                   <tr>
                     <th className="p-3 text-left">
                       <input
@@ -882,6 +921,20 @@ export default function Home() {
                 <p className="text-xs text-slate-700 my-0">{selected?.id || "ID"}</p>
                 <div id="preview-qr" className="w-[140px] h-[140px] bg-white p-2 rounded-lg grid place-items-center mx-auto"></div>
               </div>
+            </div>
+            <div className="flex justify-end mt-4">
+              <button
+                disabled={!selected}
+                className="bg-gradient-to-r from-magenta to-violet text-white font-semibold rounded-xl px-4 py-2 shadow disabled:opacity-50"
+                onClick={() => {
+                  if (!selected) return;
+                  handlePrint([selected]);
+                  markPrinted(selected);
+                  setModalOpen(false);
+                }}
+              >
+                Print
+              </button>
             </div>
           </div>
         </div>
