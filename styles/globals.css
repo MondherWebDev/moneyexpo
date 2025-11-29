@@ -40,7 +40,7 @@
     border-radius: 0;
     padding: 0;
     background-color: #fff;
-    background-image: url("/badge-template.png");
+    background-image: none !important; /* only print content, no template */
     background-size: cover;
     background-repeat: no-repeat;
     background-position: center top;
@@ -72,5 +72,46 @@
     width: 3.2cm;
     height: 3.2cm;
     margin-top: auto;
+  }
+  .print-name {
+    font-size: 24px;
+    font-weight: 700;
+    margin: 0;
+    color: #0c1027;
+  }
+  .print-category,
+  .print-job-title,
+  .print-company,
+  .print-country,
+  .print-id {
+    margin: 0;
+    padding: 0;
+    color: #141414;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .print-job-title {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  /* Hide category text entirely; badge template already includes it */
+  .print-category {
+    display: none !important;
+  }
+  .print-company {
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .print-country {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .print-id {
+    display: none !important;
+  }
+  /* Hide UI modals/backdrop during print */
+  .modal,
+  .modal-backdrop {
+    display: none !important;
   }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Head from "next/head";
 import { getOfflineCache, getCheckinsCache, saveCheckinsCache } from "../lib/db";
+import jsQR from "jsqr";
 
 const defaultBase = "https://moneyexpoglobal.com";
 const defaultToken = "f9c8ad6db3f6aabf2744f416623bd55f8c4b91b3";
@@ -17,6 +18,9 @@ export default function Checkin() {
   const [checkins, setCheckins] = useState({});
   const [offline, setOffline] = useState([]);
   const [scanning, setScanning] = useState(false);
+  const [lastScan, setLastScan] = useState("");
+  const [scanMsg, setScanMsg] = useState("Tap start camera to scan QR.");
+  const [scanTone, setScanTone] = useState("muted");
   const [installPrompt, setInstallPrompt] = useState(null);
   const [iosHint, setIosHint] = useState(false);
   const videoRef = useRef(null);
@@ -140,6 +144,7 @@ export default function Checkin() {
       raw.uuid ||
       raw.code ||
       raw.attendee?.id;
+    const country = raw.country || raw.country_name || raw.nationality || raw.city || raw.attendee?.country || "";
     const name =
       raw.full_name ||
       raw.name ||
@@ -159,7 +164,17 @@ export default function Checkin() {
       raw.type ||
       raw.role ||
       "VISITOR";
-    return { raw, id: String(id || ""), name, company, email, status, qrValue, category: String(category || "").toUpperCase() };
+    return {
+      raw,
+      id: String(id || ""),
+      name,
+      company,
+      email,
+      status,
+      qrValue,
+      category: String(category || "").toUpperCase(),
+      country,
+    };
   }
 
   async function lookupRecord(termValue) {
@@ -193,14 +208,35 @@ export default function Checkin() {
   }
 
   async function handleScannedPayload(value) {
+    const payload = (value || "").trim();
+    setLastScan(payload);
     try {
-      const rec = await lookupRecord(value);
-      if (!rec) return;
+      const rec = await lookupRecord(payload);
+      if (!rec) {
+        setStatus("No record found for scanned code.", "error");
+        setScanMsg("No record found.");
+        setScanTone("error");
+        setTimeout(() => {
+          if (!scanning) startScan();
+        }, 800);
+        return;
+      }
       const current = checkins[rec.id]?.status;
       const nextStatus = current === "IN" ? "OUT" : "IN";
       handleCheck(nextStatus, rec);
+      setStatus(`Scanned ${rec.name || rec.id} (${nextStatus === "IN" ? "checked in" : "checked out"}).`, "muted");
+      setScanMsg(`${rec.name || rec.id} ${nextStatus === "IN" ? "checked in" : "checked out"}.`);
+      setScanTone("success");
+      setTimeout(() => {
+        if (!scanning) startScan();
+      }, 800);
     } catch (err) {
       setStatus(err.message, "error");
+      setScanMsg(err.message || "Scan failed");
+      setScanTone("error");
+      setTimeout(() => {
+        if (!scanning) startScan();
+      }, 1200);
     }
   }
 
@@ -211,19 +247,27 @@ export default function Checkin() {
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute("playsinline", "true");
+        videoRef.current.setAttribute("autoplay", "true");
+        videoRef.current.setAttribute("muted", "true");
         await videoRef.current.play();
       }
       setScanning(true);
+      setScanMsg("Scanning... point camera at QR");
+      setScanTone("muted");
       scanFrame();
       setStatus("Scanning... point camera at QR.", "muted");
     } catch (err) {
       setStatus(`Camera error: ${err.message}`, "error");
+      setScanMsg(`Camera error: ${err.message}`);
+      setScanTone("error");
     }
   }
 
   function stopScan() {
     setScanning(false);
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (rafRef.current) rafRef.current = null;
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -249,18 +293,23 @@ export default function Checkin() {
     const ctx = canvas.getContext("2d");
     ctx.drawImage(video, 0, 0, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
-    const qrLib = typeof window !== "undefined" ? window.jsQR : null;
-    if (!qrLib) {
-      setStatus("Scanner not ready. Please try again.", "error");
-      rafRef.current = requestAnimationFrame(scanFrame);
-      return;
-    }
-    const code = qrLib(imageData.data, w, h);
+    const code = jsQR(imageData.data, w, h, { inversionAttempts: "attemptBoth" });
     if (code && code.data) {
       stopScan();
       handleScannedPayload(code.data);
+      // Clear overlay before returning
+      ctx.clearRect(0, 0, w, h);
       return;
     }
+
+    // Draw a simple guide frame to help aim at the QR
+    ctx.strokeStyle = "#4dd9c8";
+    ctx.lineWidth = 4;
+    const frameSize = Math.min(w, h) * 0.4;
+    const fx = (w - frameSize) / 2;
+    const fy = (h - frameSize) / 2;
+    ctx.strokeRect(fx, fy, frameSize, frameSize);
+
     rafRef.current = requestAnimationFrame(scanFrame);
   }
 
@@ -269,7 +318,6 @@ export default function Checkin() {
       <Head>
         <title>MEQ2025 Check-in</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
       </Head>
       <div className="min-h-screen bg-gradient-to-b from-[#0c0a1f] via-[#0a0a1a] to-[#0a0a18] text-white px-4 py-8">
         <div className="max-w-3xl mx-auto flex flex-col gap-4">
@@ -317,7 +365,7 @@ export default function Checkin() {
                 </button>
               </div>
             </div>
-            <div className="bg-black/30 border border-white/10 rounded-2xl p-3">
+            <div className="bg-black/30 border border-white/10 rounded-2xl p-3 relative overflow-hidden">
               <video
                 ref={videoRef}
                 className="w-full rounded-xl bg-black/40 border border-white/10"
@@ -326,9 +374,24 @@ export default function Checkin() {
                 muted
               />
               <canvas ref={canvasRef} style={{ display: "none" }} />
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <div className="border-4 border-aqua/80 rounded-xl w-2/3 max-w-[260px] aspect-square animate-pulse"></div>
+              </div>
+              {scanning && (
+                <div className="mt-2 text-xs text-white/70 flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 rounded-full bg-aqua animate-ping"></span>
+                  <span>{scanMsg}</span>
+                </div>
+              )}
+              {!scanning && (
+                <div className="mt-2 text-xs text-rose-200">{scanMsg}</div>
+              )}
               <p className="text-xs text-white/60 mt-2">
                 If the attendee was already IN, the scan will mark them OUT automatically.
               </p>
+              {lastScan && (
+                <p className="text-xs text-white/60 mt-1">Last scanned payload: {lastScan}</p>
+              )}
             </div>
           </section>
 

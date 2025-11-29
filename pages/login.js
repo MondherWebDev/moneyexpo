@@ -39,7 +39,7 @@ export default function Login() {
       <div className="min-h-screen flex items-center justify-center px-4 bg-gradient-to-br from-[#0c0a1f] via-[#0a0a1a] to-[#131230] text-white">
         <div className="w-full max-w-md bg-white/5 border border-white/10 rounded-2xl shadow-2xl p-6 backdrop-blur">
           <div className="flex items-center gap-3 mb-4">
-            <img src="/MoneyExpo.jpeg" alt="Money Expo" className="w-16 rounded-xl shadow-lg ring-2 ring-white/10" />
+            <img src="/MoneyExpo.jpeg" alt="Money Expo" className="w-16 rounded-xl shadow-lg" />
             <div>
               <p className="uppercase tracking-[0.16em] font-bold text-aqua text-xs mb-1">MEQ2025</p>
               <h1 className="text-xl font-bold m-0">Badge Control Login</h1>

@@ -21,6 +21,7 @@ export default function Home() {
   const [checkins, setCheckins] = useState({});
   const [statusMsg, setStatusMsg] = useState("Awaiting selection.");
   const [statusTone, setStatusTone] = useState("muted");
+  const [showStats, setShowStats] = useState(false);
   const [lastDelta, setLastDelta] = useState(0);
   const [maxSeen, setMaxSeen] = useState(0);
   const [activeTab, setActiveTab] = useState("VISITOR");
@@ -274,6 +275,7 @@ export default function Home() {
       raw.uuid ||
       raw.code ||
       raw.attendee?.id;
+    const country = raw.country || raw.country_name || raw.nationality || raw.city || raw.attendee?.country || "";
     const name =
       raw.full_name ||
       raw.name ||
@@ -294,7 +296,18 @@ export default function Home() {
       raw.role ||
       "VISITOR";
     const jobTitle = raw.job_title || raw.title || raw.position || raw.role || "";
-    return { raw, id: String(id || ""), name, company, email, status, qrValue, category: String(category || "").toUpperCase(), jobTitle };
+    return {
+      raw,
+      id: String(id || ""),
+      name,
+      company,
+      email,
+      status,
+      qrValue,
+      category: String(category || "").toUpperCase(),
+      jobTitle,
+      country,
+    };
   }
 
   function mergeRecords(list) {
@@ -317,6 +330,7 @@ export default function Home() {
       qrValue: v.qrValue,
       category: v.category,
       jobTitle: v.jobTitle,
+      country: v.country,
     };
   }
 
@@ -358,10 +372,9 @@ export default function Home() {
         <div class="print-badge ${rec.category && rec.category !== "VISITOR" ? "badge-nonvisitor" : ""}">
           <div class="badge-info">
             <p class="print-name">${escapeHtml(rec.name)}</p>
-            <p class="print-category">${escapeHtml(rec.category || "VISITOR")}</p>
             <p class="print-job-title">${escapeHtml(rec.jobTitle || "")}</p>
             <p class="print-company">${escapeHtml(rec.company || "Company")}</p>
-            <p class="print-id">${escapeHtml(rec.id)}</p>
+            <p class="print-country">${escapeHtml(rec.country || "")}</p>
             <div class="qr ${rec.category && rec.category !== "VISITOR" ? "qr-small" : ""}" id="qr-${rec.id}"></div>
           </div>
         </div>`
@@ -384,7 +397,6 @@ export default function Home() {
       });
     }
     window.print();
-    // Do not auto-mark as printed to avoid API errors when print is canceled.
   }
 
   async function markPrintedBatch(records) {
@@ -421,7 +433,7 @@ export default function Home() {
       const msg = String(err.message || "");
       if (msg.includes("422")) {
         if (!silent) {
-          setStatus("Print status update was rejected (already printed or invalid payload). Badge kept as-is.", "error");
+          setStatus("Print status update was rejected (already printed or invalid payload). Badge kept as-is.", "muted");
         }
         return;
       }
@@ -508,14 +520,9 @@ export default function Home() {
 
   function handleSelectRow(item, e) {
     const action = e.target.getAttribute("data-action");
-    if (action === "preview") {
-      setSelected(item);
-      setModalOpen(true);
-      return;
-    }
     if (action === "print") {
       setSelected(item);
-      handlePrint([item]);
+      setModalOpen(true);
       return;
     }
     if (e.target.tagName === "INPUT") {
@@ -544,7 +551,7 @@ export default function Home() {
     lastDelta > 0 ? ` (+${lastDelta} new)` : ""
   } | Total seen: ${maxSeen} | Selected: ${selectedIds.size}`;
   const tableTitle = activeTab === "VISITOR" ? "Visitors" : `${activeTab.toLowerCase()}s`;
-  const badgeOverlayStyles = { top: "56%", left: "50%", transform: "translate(-50%, -42%)", width: "82%" };
+  const badgeOverlayStyles = { top: "52%", left: "50%", transform: "translate(-50%, -35%)", width: "82%" };
   const statusColor =
     statusTone === "error" ? "text-rose-300" : statusTone === "success" ? "text-emerald-200" : "text-white/80";
 
@@ -561,7 +568,7 @@ export default function Home() {
         <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
       </Head>
       <div id="app" className="w-full px-4 sm:px-6 lg:px-8 pb-12 text-white">
-        <header className="mt-1 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6 rounded-2xl p-5 shadow-2xl bg-gradient-to-r from-magenta/40 via-violet/30 to-navy/70 border border-white/10">
+        <header className="mt-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6 rounded-2xl p-5 shadow-2xl bg-gradient-to-r from-magenta/40 via-violet/30 to-navy/70 border border-white/10">
           <div className="flex items-center gap-4 min-w-[260px]">
             <img src="/MoneyExpo.jpeg" alt="Money Expo Qatar" className="w-32 rounded-2xl shadow-2xl" />
             <div>
@@ -729,24 +736,49 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="bg-navy2 rounded-2xl p-4 shadow-xl border border-white/5 mb-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="bg-white/10 border border-white/15 rounded-xl p-3">
-            <p className="text-xs uppercase tracking-[0.08em] text-white/70 m-0">Loaded</p>
-            <p className="text-2xl font-bold mt-1">{stats.loaded}</p>
+        <section className="bg-navy2 rounded-2xl p-4 shadow-xl border border-white/5 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-white/80 m-0">Stats</h3>
+            <button
+              type="button"
+              className="flex items-center gap-2 text-sm px-3 py-2 rounded-xl bg-white/10 border border-white/20 hover:bg-white/15 transition"
+              onClick={() => {
+                if (showStats) {
+                  setShowStats(false);
+                  return;
+                }
+                const pass = prompt("Enter passcode to unlock stats");
+                if (pass && pass === PASSCODE) {
+                  setShowStats(true);
+                } else {
+                  setStatus("Incorrect passcode.", "error");
+                  setShowStats(false);
+                }
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d={showStats ? "M6 10V7a6 6 0 1112 0v3h1a1 1 0 011 1v10a1 1 0 01-1 1H5a1 1 0 01-1-1V11a1 1 0 011-1h1zm2 0h8V7a4 4 0 10-8 0v3z" : "M6 10V7a6 6 0 1112 0v3h1a1 1 0 011 1v10a1 1 0 01-1 1H5a1 1 0 01-1-1V11a1 1 0 011-1h1zm2 0h8V7a4 4 0 10-8 0v3zm4 4a2 2 0 100 4 2 2 0 000-4z"}
+                  fill="#fff"
+                />
+              </svg>
+              <span>{showStats ? "Lock" : "Unlock"}</span>
+            </button>
           </div>
-          <div className="bg-white/10 border border-white/15 rounded-xl p-3">
-            <p className="text-xs uppercase tracking-[0.08em] text-white/70 m-0">Selected</p>
-            <p className="text-2xl font-bold mt-1">{stats.selected}</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { label: "Loaded", value: stats.loaded },
+              { label: "Selected", value: stats.selected },
+              { label: "Printed", value: stats.printed },
+              { label: "Checked in", value: stats.checkedIn },
+            ].map((item) => (
+              <div key={item.label} className="bg-white/10 border border-white/15 rounded-xl p-3">
+                <p className="text-xs uppercase tracking-[0.08em] text-white/70 m-0">{item.label}</p>
+                <p className="text-2xl font-bold mt-1">{showStats ? item.value : "•••"}</p>
+              </div>
+            ))}
           </div>
-          <div className="bg-white/10 border border-white/15 rounded-xl p-3">
-            <p className="text-xs uppercase tracking-[0.08em] text-white/70 m-0">Printed</p>
-            <p className="text-2xl font-bold mt-1">{stats.printed}</p>
-          </div>
-          <div className="bg-white/10 border border-white/15 rounded-xl p-3">
-            <p className="text-xs uppercase tracking-[0.08em] text-white/70 m-0">Checked in</p>
-            <p className="text-2xl font-bold mt-1">{stats.checkedIn}</p>
-          </div>
-          <p className={`col-span-2 md:col-span-4 text-sm ${statusColor} m-0`}>{statusMsg}</p>
+          <p className={`text-sm mt-3 ${statusColor} m-0`}>{statusMsg}</p>
         </section>
 
         <section className="bg-navy2 rounded-2xl p-3 shadow-lg border border-white/5 mb-4">
@@ -855,12 +887,6 @@ export default function Home() {
                           <td className="p-3">
                             <div className="flex flex-col gap-2 min-w-[130px]">
                               <button
-                                className="bg-white text-navy font-bold rounded-xl px-3 py-2 border border-navy shadow-sm"
-                                data-action="preview"
-                              >
-                                Preview
-                              </button>
-                              <button
                                 className="bg-gradient-to-r from-magenta to-violet text-white font-bold rounded-xl px-3 py-2 shadow"
                                 data-action="print"
                               >
@@ -912,14 +938,19 @@ export default function Home() {
             <h3 className="text-lg font-semibold mb-3">Badge preview</h3>
             <div
               id="badge-preview"
-              className="relative w-full max-w-[420px] aspect-[27/37] mx-auto overflow-hidden rounded-2xl shadow"
-              style={{ background: 'url("/badge-template.png") center top / cover no-repeat' }}
+              className="relative w-full max-w-[480px] mx-auto overflow-hidden shadow"
+              style={{
+                width: "320px",
+                height: "440px",
+                background: 'url("/badge-template.png") center top / cover no-repeat',
+                borderRadius: "0",
+              }}
             >
               <div className="absolute text-center flex flex-col items-center gap-2" style={badgeOverlayStyles}>
                 <p className="text-2xl font-bold my-0">{selected?.name || "Select a visitor"}</p>
-                <p className="text-sm text-slate-800 my-0">{selected?.company || "Company"}</p>
-                <p className="text-xs text-slate-700 my-0">{selected?.id || "ID"}</p>
-                <div id="preview-qr" className="w-[140px] h-[140px] bg-white p-2 rounded-lg grid place-items-center mx-auto"></div>
+                <p className="text-xl text-slate-800 my-0 font-semibold">{selected?.company || "Company"}</p>
+                <p className="text-lg text-slate-700 my-0 font-semibold">{selected?.country || ""}</p>
+                <div id="preview-qr" className="w-[100px] h-[100px] bg-white p-2 rounded-lg grid place-items-center mx-auto"></div>
               </div>
             </div>
             <div className="flex justify-end mt-4">
@@ -928,9 +959,12 @@ export default function Home() {
                 className="bg-gradient-to-r from-magenta to-violet text-white font-semibold rounded-xl px-4 py-2 shadow disabled:opacity-50"
                 onClick={() => {
                   if (!selected) return;
-                  handlePrint([selected]);
-                  markPrinted(selected);
                   setModalOpen(false);
+                  const current = selected;
+                  setTimeout(() => {
+                    handlePrint([current]);
+                    markPrinted(current);
+                  }, 10);
                 }}
               >
                 Print
