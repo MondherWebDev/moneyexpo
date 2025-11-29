@@ -4,7 +4,8 @@ import { getOfflineCache, getCheckinsCache, saveCheckinsCache } from "../lib/db"
 
 const defaultBase = "https://moneyexpoglobal.com";
 const defaultToken = "f9c8ad6db3f6aabf2744f416623bd55f8c4b91b3";
-const defaultProxy = "https://moneyexpo.vercel.app/api/proxy?url=";
+// Relative proxy to work across preview domains
+const defaultProxy = "/api/proxy?url=";
 
 export default function Checkin() {
   const [base, setBase] = useState(defaultBase);
@@ -82,7 +83,15 @@ export default function Checkin() {
   async function apiGet(path) {
     const url = buildUrl(path);
     const target = proxy ? `${proxy}${encodeURIComponent(url)}` : url;
-    const res = await fetch(target, { headers: { ...authHeader() } });
+    const res = await fetch(target, {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        ...authHeader(),
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+    });
     const text = await res.text();
     const data = safeJson(text);
     if (!res.ok) throw new Error(`GET ${path} failed (${res.status}): ${text.slice(0, 140)}`);

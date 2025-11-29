@@ -17,3 +17,6 @@ pnpm-debug.log*
 .env.*.local
 .DS_Store
 .vscode
+
+.vercel
+.env*.local

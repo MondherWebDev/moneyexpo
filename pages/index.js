@@ -4,7 +4,8 @@ import { getVisitorsCache, saveVisitorsCache, getOfflineCache, saveOfflineCache,
 
 const defaultToken = "f9c8ad6db3f6aabf2744f416623bd55f8c4b91b3";
 const defaultBase = "https://moneyexpoglobal.com";
-const defaultProxy = "https://moneyexpo.vercel.app/api/proxy?url=";
+// Use relative proxy so it works on any Vercel domain/preview without editing settings.
+const defaultProxy = "/api/proxy?url=";
 const pageSize = 100;
 
 export default function Home() {
@@ -26,8 +27,6 @@ export default function Home() {
   const [offlineCategory, setOfflineCategory] = useState("EXHIBITOR");
   const [modalOpen, setModalOpen] = useState(false);
   const [pageIndex, setPageIndex] = useState(1);
-  const [loadError, setLoadError] = useState(false);
-  const [lastPageLoaded, setLastPageLoaded] = useState(0);
   const [showSecrets, setShowSecrets] = useState(false);
   const PASSCODE = "2580";
   const printAreaRef = useRef(null);
@@ -177,7 +176,15 @@ export default function Home() {
   async function apiGet(path) {
     const url = buildUrl(path);
     const target = proxy ? `${proxy}${encodeURIComponent(url)}` : url;
-    const res = await fetch(target, { headers: { ...authHeader() } });
+    const res = await fetch(target, {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        ...authHeader(),
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+    });
     const text = await res.text();
     const data = safeJson(text);
     if (!res.ok) throw new Error(`GET ${path} failed (${res.status}): ${text.slice(0, 140)}`);
@@ -208,6 +215,9 @@ export default function Home() {
       const merged = mergeRecords([...list, ...offlineMatches]);
       updateCounts(merged.length);
       setVisitors(merged);
+      setActiveTab("VISITOR");
+      setPageIndex(1);
+      setSelectedIds(new Set());
       if (merged[0]) setSelected(merged[0]);
       setStatus(`Loaded ${merged.length} result(s) (including offline) for "${term}".`);
     } catch (err) {
@@ -215,61 +225,7 @@ export default function Home() {
     }
   }
 
-  async function handleLoadAll() {
-    try {
-      setStatus("Loading all visitors...");
-      setVisitors([]);
-      setPageIndex(1);
-      setLoadError(false);
-      setLastPageLoaded(0);
-      const apiList = (await fetchAllVisitors(1)).map((v) => ({ ...v, category: "VISITOR" }));
-      const merged = mergeRecords([...apiList, ...offline]);
-      updateCounts(merged.length);
-      setVisitors(merged);
-      setStatus(`Loaded ${merged.length} visitors (including offline).`);
-      try {
-        if (merged.length) saveVisitorsCache(merged.map(compactVisitor));
-        } catch (_) {
-          /* ignore */
-        }
-      } catch (err) {
-        setStatus(err.message, "error");
-    }
-  }
-
-  async function fetchAllVisitors(startPage = 1) {
-    let all = [];
-    let page = startPage;
-    while (true) {
-      setStatus(`Loading visitors (page ${page})...`);
-      try {
-        const payload = await apiGet(`/api/qatar/get-all-visitors-data?page=${page}&per_page=${pageSize}`);
-        const chunk = normalizeRecords(payload);
-        if (!chunk.length) break;
-        all = mergeRecords([...all, ...chunk]);
-        setVisitors(all);
-        updateCounts(all.length);
-        setLastPageLoaded(page);
-        saveVisitorsCache(all.map(compactVisitor));
-        if (chunk.length < pageSize) break;
-        page += 1;
-        await new Promise((resolve) => setTimeout(resolve, 200)); // small pause to reduce 429s
-      } catch (err) {
-        if (String(err.message || "").includes("429")) {
-          setStatus(`Rate limit reached after page ${page - 1}. Loaded ${all.length} so far. Use Resume to continue later.`, "error");
-          setLoadError(true);
-          break;
-        }
-        setStatus(
-          `API error at page ${page}. Loaded ${all.length} so far. Use Resume to continue when available. (${err.message})`,
-          "error"
-        );
-        setLoadError(true);
-        break;
-      }
-    }
-    return all;
-  }
+  // Removed bulk "load all" to encourage targeted search and avoid rate limits.
 
   function normalizeRecords(payload) {
     if (!payload) return [];
@@ -557,6 +513,7 @@ export default function Home() {
   const tableMeta = `Loaded: ${mergedVisitors.length}${
     lastDelta > 0 ? ` (+${lastDelta} new)` : ""
   } | Total seen: ${maxSeen} | Selected: ${selectedIds.size}`;
+  const tableTitle = activeTab === "VISITOR" ? "Visitors" : `${activeTab.toLowerCase()}s`;
   const badgeOverlayStyles = { top: "56%", left: "50%", transform: "translate(-50%, -42%)", width: "82%" };
   const statusColor =
     statusTone === "error" ? "text-rose-300" : statusTone === "success" ? "text-emerald-200" : "text-white/80";
@@ -584,12 +541,6 @@ export default function Home() {
             </div>
           </div>
           <div className="flex gap-3 flex-wrap">
-            <button
-              onClick={handleLoadAll}
-              className="bg-white text-navy font-bold rounded-xl px-4 py-2 shadow-md hover:-translate-y-[1px] transition"
-            >
-              Load all visitors
-            </button>
             <button
               onClick={() => handlePrint(mergedVisitors.filter((v) => selectedIds.has(v.id)))}
               className="bg-gradient-to-r from-magenta to-violet text-white font-bold rounded-xl px-4 py-2 shadow-lg hover:-translate-y-[1px] transition"
@@ -759,27 +710,34 @@ export default function Home() {
           <p className={`col-span-2 md:col-span-4 text-sm ${statusColor} m-0`}>{statusMsg}</p>
         </section>
 
+        <section className="bg-navy2 rounded-2xl p-3 shadow-lg border border-white/5 mb-4">
+          <div className="flex flex-wrap items-center gap-2">
+            {tabList.map(({ cat, count }) => (
+              <button
+                key={cat}
+                className={`px-4 py-2 rounded-full text-sm font-semibold border transition ${
+                  activeTab === cat
+                    ? "bg-gradient-to-r from-magenta to-violet text-white border-transparent shadow-lg"
+                    : "bg-white text-navy border-slate-200"
+                }`}
+                onClick={() => {
+                  setActiveTab(cat);
+                  setPageIndex(1);
+                  setSelectedIds(new Set());
+                }}
+              >
+                {cat}
+                {count ? ` (${count})` : ""}
+              </button>
+            ))}
+          </div>
+        </section>
+
         <section>
           <div className="bg-white rounded-2xl shadow-xl p-4 text-textmain">
-            <div className="flex flex-wrap items-center gap-2 mb-4">
-              {tabList.map(({ cat, count }) => (
-                <button
-                  key={cat}
-                  className={`px-4 py-2 rounded-full text-sm font-semibold border transition ${
-                    activeTab === cat
-                      ? "bg-gradient-to-r from-magenta to-violet text-white border-transparent shadow-lg"
-                      : "bg-white text-navy border-slate-200"
-                  }`}
-                  onClick={() => setActiveTab(cat)}
-                >
-                  {cat}
-                  {count ? ` (${count})` : ""}
-                </button>
-              ))}
-            </div>
             <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
               <div>
-                <h2 className="text-xl font-bold m-0">Visitors</h2>
+                <h2 className="text-xl font-bold m-0 capitalize">{tableTitle}</h2>
                 <p className="text-sm text-slate-500 m-0">{tableMeta}</p>
               </div>
               <div className="flex gap-2 flex-wrap">
@@ -793,22 +751,6 @@ export default function Home() {
                 >
                   Clear selection
                 </button>
-                {loadError && (
-                  <button
-                    className="bg-gradient-to-r from-magenta to-violet text-white font-bold rounded-xl px-3 py-2 shadow"
-                    onClick={async () => {
-                      setStatus("Resuming load...");
-                      setLoadError(false);
-                      const more = (await fetchAllVisitors(lastPageLoaded + 1)).map((v) => ({ ...v, category: "VISITOR" }));
-                      const merged = mergeRecords([...visitors, ...more, ...offline]);
-                      updateCounts(merged.length);
-                      setVisitors(merged);
-                      setStatus(`Loaded ${merged.length} visitors (including offline).`);
-                    }}
-                  >
-                    Resume load
-                  </button>
-                )}
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -837,7 +779,9 @@ export default function Home() {
                   {pagedVisitors.length === 0 ? (
                     <tr>
                       <td className="p-4 text-center text-slate-500" colSpan={9}>
-                        No results yet.
+                        {activeTab === "VISITOR"
+                          ? "No results yet. Search by email or attendee ID."
+                          : "No records for this category. Upload CSV to add entries."}
                       </td>
                     </tr>
                   ) : (
