@@ -131,14 +131,14 @@ export default function Home() {
       // eslint-disable-next-line no-undef
       new QRCode(qrEl, {
         text: String(selected.qrValue || ""),
-        width: 110,
-        height: 110,
+        width: Math.round(qrSizeCm * 37.8),
+        height: Math.round(qrSizeCm * 37.8),
         correctLevel: QRCode.CorrectLevel.H,
       });
     } catch (err) {
       qrEl.textContent = "QR unavailable";
     }
-  }, [modalOpen, selected]);
+  }, [modalOpen, selected, qrSizeCm]);
 
   useEffect(() => {
     setPageIndex(1);
@@ -286,7 +286,7 @@ export default function Home() {
     const company = raw.company_name || raw.company || raw.organization || raw.organisation || raw.brand || "Unknown";
     const email = raw.email || raw.work_email || raw.contact_email || "";
     const status = String(raw.badge_status || raw.status || "PENDING").toUpperCase();
-    const qrValue = raw.qr_value || raw.qr || id || email || name;
+    const qrValue = id || raw.qr_value || raw.qr || email || name;
     const category =
       raw.category ||
       raw.sub_title ||
@@ -365,17 +365,18 @@ export default function Home() {
       setStatus("Select at least one visitor to print.", "error");
       return;
     }
+    const qrPx = Math.round(qrSizeCm * 37.8);
     if (printAreaRef.current) {
       printAreaRef.current.innerHTML = items
         .map(
           (rec) => `
         <div class="print-badge ${rec.category && rec.category !== "VISITOR" ? "badge-nonvisitor" : ""}">
-          <div class="badge-info">
+          <div class="badge-info" style="top:${offsetY}%;left:${offsetX}%;transform:translate(-${offsetX}%, -${offsetY - 10}%);">
             <p class="print-name">${escapeHtml(rec.name)}</p>
             <p class="print-job-title">${escapeHtml(rec.jobTitle || "")}</p>
             <p class="print-company">${escapeHtml(rec.company || "Company")}</p>
             <p class="print-country">${escapeHtml(rec.country || "")}</p>
-            <div class="qr ${rec.category && rec.category !== "VISITOR" ? "qr-small" : ""}" id="qr-${rec.id}"></div>
+            <div class="qr" style="width:${qrPx}px;height:${qrPx}px;" id="qr-${rec.id}"></div>
           </div>
         </div>`
         )
@@ -445,11 +446,12 @@ export default function Home() {
   function handleCsvImport(e) {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
+    const usedIds = new Set([...visitors.map((v) => v.id), ...offline.map((o) => o.id)]);
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
         const text = evt.target.result;
-        const records = parseCsv(text, offlineCategory);
+        const records = parseCsv(text, offlineCategory, usedIds);
         if (!records.length) {
           setStatus("No records found in CSV.", "error");
           return;
@@ -468,7 +470,7 @@ export default function Home() {
     reader.readAsText(file);
   }
 
-  function parseCsv(text, categoryDefault) {
+  function parseCsv(text, categoryDefault, usedIds = new Set()) {
     const lines = text.split(/\r?\n/).filter((l) => l.trim());
     if (!lines.length) return [];
     const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
@@ -480,14 +482,18 @@ export default function Home() {
         header.forEach((key, idx) => {
           rec[key] = cols[idx] || "";
         });
-        const id = rec.id || rec.attendee_id || rec.code;
+        let id = rec.id || rec.attendee_id || rec.code;
         const name = rec.name || `${rec.first_name || ""} ${rec.last_name || ""}`.trim();
         const company = rec.company || rec.company_name || rec.organization || rec.organisation;
         const email = rec.email || "";
         const category = rec.category || rec.type || categoryDefault || "VISITOR";
         const jobTitle = rec.job_title || rec.title || rec.position || rec.role || "";
         const status = String(rec.status || "PENDING").toUpperCase();
-        if (!id) return null;
+        if (!id || usedIds.has(String(id))) {
+          id = generateRandomId(usedIds);
+        } else {
+          usedIds.add(String(id));
+        }
         return {
           raw: rec,
           id: String(id),
@@ -495,12 +501,21 @@ export default function Home() {
           company: company || "Unknown",
           email,
           status,
-          qrValue: rec.qr || rec.qr_value || id,
+          qrValue: String(id),
           category: String(category || "VISITOR").toUpperCase(),
           jobTitle,
         };
       })
       .filter(Boolean);
+  }
+
+  function generateRandomId(used) {
+    let id = "";
+    do {
+      id = `ID-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    } while (used.has(id));
+    used.add(id);
+    return id;
   }
 
   function filterOffline(term, records) {
@@ -551,9 +566,30 @@ export default function Home() {
     lastDelta > 0 ? ` (+${lastDelta} new)` : ""
   } | Total seen: ${maxSeen} | Selected: ${selectedIds.size}`;
   const tableTitle = activeTab === "VISITOR" ? "Visitors" : `${activeTab.toLowerCase()}s`;
-  const badgeOverlayStyles = { top: "52%", left: "50%", transform: "translate(-50%, -35%)", width: "82%" };
+  const badgeOverlayStyles = {
+    top: "50%",
+    left: "50%",
+    transform: "translate(-50%, -50%)",
+    width: "82%",
+  };
   const statusColor =
     statusTone === "error" ? "text-rose-300" : statusTone === "success" ? "text-emerald-200" : "text-white/80";
+
+  function downloadTemplate() {
+    const headers = ["id", "name", "company", "email", "category", "status", "job_title"];
+    const sample = [
+      headers.join(","),
+      'sample-1,"Jane Doe","Example Corp","jane@example.com","EXHIBITOR","PENDING","Marketing Manager"',
+      'sample-2,"John Smith","Example Corp","john@example.com","VISITOR","PENDING","Sales Lead"',
+    ].join("\n");
+    const blob = new Blob([sample], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "badge-template.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <>
@@ -677,6 +713,51 @@ export default function Home() {
                   <span className="text-xs text-white/70">Applied to imported rows</span>
                 </div>
                 <p className="text-xs text-white/60 mt-2">Imported records merge with API data and save locally.</p>
+                <button
+                  type="button"
+                  className="mt-3 w-full bg-white/10 text-white font-semibold rounded-xl px-3 py-2 border border-white/20 hover:bg-white/15 transition"
+                  onClick={downloadTemplate}
+                >
+                  Download CSV template
+                </button>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3 text-sm text-white/80">
+                  <label className="flex flex-col">
+                    <span>Offset X (%)</span>
+                    <input
+                      type="number"
+                      value={offsetX}
+                      step="0.5"
+                      min="40"
+                      max="60"
+                      onChange={(e) => setOffsetX(parseFloat(e.target.value) || 48)}
+                      className="mt-1 rounded-lg px-2 py-1 text-textmain"
+                    />
+                  </label>
+                  <label className="flex flex-col">
+                    <span>Offset Y (%)</span>
+                    <input
+                      type="number"
+                      value={offsetY}
+                      step="0.5"
+                      min="40"
+                      max="60"
+                      onChange={(e) => setOffsetY(parseFloat(e.target.value) || 50)}
+                      className="mt-1 rounded-lg px-2 py-1 text-textmain"
+                    />
+                  </label>
+                  <label className="flex flex-col">
+                    <span>QR size (cm)</span>
+                    <input
+                      type="number"
+                      value={qrSizeCm}
+                      step="0.1"
+                      min="2"
+                      max="5"
+                      onChange={(e) => setQrSizeCm(parseFloat(e.target.value) || 3.6)}
+                      className="mt-1 rounded-lg px-2 py-1 text-textmain"
+                    />
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -950,7 +1031,11 @@ export default function Home() {
                 <p className="text-2xl font-bold my-0">{selected?.name || "Select a visitor"}</p>
                 <p className="text-xl text-slate-800 my-0 font-semibold">{selected?.company || "Company"}</p>
                 <p className="text-lg text-slate-700 my-0 font-semibold">{selected?.country || ""}</p>
-                <div id="preview-qr" className="w-[100px] h-[100px] bg-white p-2 rounded-lg grid place-items-center mx-auto"></div>
+                <div
+                  id="preview-qr"
+                  className="bg-white p-2 rounded-lg grid place-items-center mx-auto"
+                  style={{ width: Math.round(qrSizeCm * 37.8) + "px", height: Math.round(qrSizeCm * 37.8) + "px" }}
+                ></div>
               </div>
             </div>
             <div className="flex justify-end mt-4">

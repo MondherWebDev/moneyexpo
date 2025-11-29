@@ -155,7 +155,7 @@ export default function Checkin() {
     const company = raw.company_name || raw.company || raw.organization || raw.organisation || raw.brand || "Unknown";
     const email = raw.email || raw.work_email || raw.contact_email || "";
     const status = String(raw.badge_status || raw.status || "PENDING").toUpperCase();
-    const qrValue = raw.qr_value || raw.qr || id || email || name;
+    const qrValue = id || raw.qr_value || raw.qr || email || name;
     const category =
       raw.category ||
       raw.sub_title ||
