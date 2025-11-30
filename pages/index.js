@@ -552,11 +552,11 @@ export default function Home() {
   function parseCsv(text, categoryDefault, usedIds = new Set()) {
     const lines = text.split(/\r?\n/).filter((l) => l.trim());
     if (!lines.length) return [];
-    const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
+    const header = splitCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
     const rows = lines.slice(1);
     return rows
       .map((line) => {
-        const cols = line.split(",").map((c) => c.trim());
+        const cols = splitCsvLine(line);
         const rec = {};
         header.forEach((key, idx) => {
           rec[key] = cols[idx] || "";
@@ -586,6 +586,17 @@ export default function Home() {
         };
       })
       .filter(Boolean);
+  }
+
+  function splitCsvLine(line) {
+    const rawParts = line.match(/("(?:""|[^"])*"|[^,]+)/g) || [];
+    return rawParts.map((part) => {
+      const trimmed = part.trim();
+      if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+        return trimmed.slice(1, -1).replace(/""/g, '"');
+      }
+      return trimmed;
+    });
   }
 
   function generateRandomId(used) {
