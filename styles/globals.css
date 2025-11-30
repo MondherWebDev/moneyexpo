@@ -55,22 +55,22 @@
   }
   .print-badge .badge-info {
     position: absolute;
-    top: 50%;
-    left: 48%;
-    transform: translate(-48%, -40%);
-    width: 82%;
+    top: var(--badge-top, 50%);
+    left: var(--badge-left, 48%);
+    transform: translate(var(--badge-offset-x, -48%), var(--badge-offset-y, -40%));
+    width: var(--badge-width, 82%);
     display: flex;
     flex-direction: column;
     align-items: center;
     text-align: center;
-    gap: 10px;
+    gap: var(--badge-gap, 10px);
   }
   .badge-actions {
     display: none !important;
   }
   .print-badge .qr {
-    width: 3.6cm;
-    height: 3.6cm;
+    width: var(--badge-qr-size, 3.6cm);
+    height: var(--badge-qr-size, 3.6cm);
     margin-top: auto;
   }
   .print-name {

@@ -1,12 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Head from "next/head";
-import { getVisitorsCache, saveVisitorsCache, getOfflineCache, saveOfflineCache, getCheckinsCache, saveCheckinsCache } from "../lib/db";
+import { getOfflineCache, saveOfflineCache, getCheckinsCache, saveCheckinsCache } from "../lib/db";
 
 const defaultToken = "f9c8ad6db3f6aabf2744f416623bd55f8c4b91b3";
 const defaultBase = "https://moneyexpoglobal.com";
 // Use relative proxy so it works on any Vercel domain/preview without editing settings.
 const defaultProxy = "/api/proxy?url=";
 const pageSize = 100;
+const defaultLayout = { top: 50, left: 48, offsetX: -48, offsetY: -40, width: 82, qr: 136, gap: 10 };
+const layoutLimits = {
+  top: [0, 100],
+  left: [0, 100],
+  offsetX: [-150, 150],
+  offsetY: [-150, 150],
+  width: [30, 120],
+  qr: [80, 260],
+  gap: [0, 40],
+};
 
 export default function Home() {
   const [base, setBase] = useState(defaultBase);
@@ -29,6 +39,7 @@ export default function Home() {
   const [modalOpen, setModalOpen] = useState(false);
   const [pageIndex, setPageIndex] = useState(1);
   const [showSecrets, setShowSecrets] = useState(false);
+  const [badgeLayout, setBadgeLayout] = useState(defaultLayout);
   const PASSCODE = "2580";
   const printAreaRef = useRef(null);
 
@@ -50,21 +61,33 @@ export default function Home() {
       }
       try {
         const storedOffline = await getOfflineCache();
-        const offlineList = Array.isArray(storedOffline) ? storedOffline : [];
-        setOffline(offlineList);
-        const storedVisitors = await getVisitorsCache();
-        if (Array.isArray(storedVisitors) && storedVisitors.length) {
-          const merged = mergeRecords([...storedVisitors.map(expandVisitor), ...offlineList]);
-          setVisitors(merged);
-          updateCounts(merged.length);
-          setStatus("Loaded cached visitors.");
+        let offlineList = Array.isArray(storedOffline) ? storedOffline : [];
+        if (!offlineList.length) {
+          try {
+            const backup = JSON.parse(localStorage.getItem("offlineBackup") || "[]");
+            offlineList = Array.isArray(backup) ? backup : [];
+          } catch (_) {
+            /* ignore */
+          }
         }
+        setOffline(offlineList);
+        updateCounts(offlineList.length);
+        if (offlineList.length) setStatus("Loaded offline records.");
       } catch (_) {
         /* ignore */
       }
       try {
         const storedCheck = await getCheckinsCache();
         setCheckins(storedCheck && typeof storedCheck === "object" ? storedCheck : {});
+      } catch (_) {
+        /* ignore */
+      }
+      try {
+        const savedLayout = JSON.parse(localStorage.getItem("badgeLayout") || "{}");
+        setBadgeLayout((prev) => ({
+          ...prev,
+          ...normalizeLayout(savedLayout),
+        }));
       } catch (_) {
         /* ignore */
       }
@@ -81,36 +104,57 @@ export default function Home() {
   }, [base, token, proxy, remember]);
 
   useEffect(() => {
-    if (visitors.length > 0) {
-      try {
-        const compact = visitors.map(compactVisitor);
-        saveVisitorsCache(compact);
-      } catch (_) {
-        /* ignore */
-      }
+    try {
+      const compact = offline.map(compactVisitor);
+      saveOfflineCache(compact);
+      localStorage.setItem("offlineBackup", JSON.stringify(compact));
+    } catch (_) {
+      /* ignore */
     }
-  }, [visitors]);
+  }, [offline]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const vars = {
+      "--badge-top": `${badgeLayout.top}%`,
+      "--badge-left": `${badgeLayout.left}%`,
+      "--badge-offset-x": `${badgeLayout.offsetX}%`,
+      "--badge-offset-y": `${badgeLayout.offsetY}%`,
+      "--badge-width": `${badgeLayout.width}%`,
+      "--badge-gap": `${badgeLayout.gap}px`,
+      "--badge-qr-size": `${badgeLayout.qr}px`,
+    };
+    Object.entries(vars).forEach(([key, value]) => {
+      root.style.setProperty(key, value);
+    });
+    try {
+      localStorage.setItem("badgeLayout", JSON.stringify(badgeLayout));
+    } catch (_) {
+      /* ignore */
+    }
+  }, [badgeLayout]);
+
+  const allRecords = useMemo(() => mergeRecords([...visitors, ...offline]), [visitors, offline]);
 
   const mergedVisitors = useMemo(() => {
-    const merged = mergeRecords([...visitors, ...offline]);
     if (activeTab === "VISITOR") {
-      return merged.filter((v) => (v.category || "VISITOR") === "VISITOR");
+      return allRecords.filter((v) => (v.category || "VISITOR") === "VISITOR");
     }
-    return offline.filter((v) => (v.category || "VISITOR") === activeTab);
-  }, [visitors, offline, activeTab]);
+    return allRecords.filter((v) => (v.category || "VISITOR") === activeTab);
+  }, [allRecords, activeTab]);
 
   const tabList = useMemo(() => {
-    const baseTabs = ["VISITOR", "EXHIBITOR", "MEDIA", "SPEAKER", "ORGANIZER", "STAFF"];
-    const offlineCounts = offline.reduce((acc, v) => {
+    const baseTabs = ["VISITOR", "EXHIBITOR", "MEDIA", "SPEAKER", "ORGANIZER", "STAFF", "EVENT CREW"];
+    const counts = allRecords.reduce((acc, v) => {
       const cat = v.category || "VISITOR";
       acc[cat] = (acc[cat] || 0) + 1;
       return acc;
     }, {});
     return baseTabs.map((cat) => ({
       cat,
-      count: cat === "VISITOR" ? visitors.length : offlineCounts[cat] || 0,
+      count: counts[cat] || 0,
     }));
-  }, [visitors.length, offline]);
+  }, [allRecords]);
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(mergedVisitors.length / pageSize)),
@@ -131,14 +175,14 @@ export default function Home() {
       // eslint-disable-next-line no-undef
       new QRCode(qrEl, {
         text: String(selected.qrValue || ""),
-        width: Math.round(qrSizeCm * 37.8),
-        height: Math.round(qrSizeCm * 37.8),
+        width: badgeLayout.qr,
+        height: badgeLayout.qr,
         correctLevel: QRCode.CorrectLevel.H,
       });
     } catch (err) {
       qrEl.textContent = "QR unavailable";
     }
-  }, [modalOpen, selected, qrSizeCm]);
+  }, [modalOpen, selected, badgeLayout.qr]);
 
   useEffect(() => {
     setPageIndex(1);
@@ -365,13 +409,14 @@ export default function Home() {
       setStatus("Select at least one visitor to print.", "error");
       return;
     }
-    const qrPx = Math.round(qrSizeCm * 37.8);
+    const qrPx = badgeLayout.qr || defaultLayout.qr;
+    const infoStyle = `top:${badgeLayout.top}%;left:${badgeLayout.left}%;transform:translate(${badgeLayout.offsetX}%, ${badgeLayout.offsetY}%);width:${badgeLayout.width}%;gap:${badgeLayout.gap}px;`;
     if (printAreaRef.current) {
       printAreaRef.current.innerHTML = items
         .map(
           (rec) => `
         <div class="print-badge ${rec.category && rec.category !== "VISITOR" ? "badge-nonvisitor" : ""}">
-          <div class="badge-info" style="top:${offsetY}%;left:${offsetX}%;transform:translate(-${offsetX}%, -${offsetY - 10}%);">
+          <div class="badge-info" style="${infoStyle}">
             <p class="print-name">${escapeHtml(rec.name)}</p>
             <p class="print-job-title">${escapeHtml(rec.jobTitle || "")}</p>
             <p class="print-company">${escapeHtml(rec.company || "Company")}</p>
@@ -388,8 +433,8 @@ export default function Home() {
           // eslint-disable-next-line no-undef
           new QRCode(qrEl, {
             text: String(rec.qrValue || ""),
-            width: 110,
-            height: 110,
+            width: qrPx,
+            height: qrPx,
             correctLevel: QRCode.CorrectLevel.H,
           });
         } catch (err) {
@@ -456,18 +501,52 @@ export default function Home() {
           setStatus("No records found in CSV.", "error");
           return;
         }
+        const importCategory = records[0]?.category || offlineCategory || "VISITOR";
         const mergedOffline = mergeRecords([...offline, ...records]);
         setOffline(mergedOffline);
         saveOfflineCache(mergedOffline.map(compactVisitor));
         const mergedAll = mergeRecords([...visitors, ...records]);
         setVisitors(mergedAll);
         updateCounts(mergedAll.length);
-        setStatus(`Imported ${records.length} offline ${offlineCategory} record(s).`);
+        setActiveTab(importCategory);
+        setPageIndex(1);
+        setStatus(`Imported ${records.length} offline ${importCategory} record(s). Switched to that tab.`);
       } catch (err) {
         setStatus(`Import failed: ${err.message}`, "error");
       }
     };
     reader.readAsText(file);
+  }
+
+  function exportOffline() {
+    if (!offline.length) {
+      setStatus("No offline records to export.", "error");
+      return;
+    }
+    const headers = ["id", "name", "company", "email", "category", "status", "job_title"];
+    const escapeCsv = (val) => `"${String(val ?? "").replace(/"/g, '""')}"`;
+    const lines = offline.map((rec) =>
+      [
+        rec.id,
+        rec.name,
+        rec.company,
+        rec.email,
+        rec.category || offlineCategory,
+        rec.status || "PENDING",
+        rec.jobTitle || "",
+      ]
+        .map(escapeCsv)
+        .join(",")
+    );
+    const csv = [headers.join(","), ...lines].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `offline-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setStatus(`Exported ${offline.length} offline record(s).`, "success");
   }
 
   function parseCsv(text, categoryDefault, usedIds = new Set()) {
@@ -533,6 +612,18 @@ export default function Home() {
     setMaxSeen((prev) => Math.max(prev, currentCount));
   }
 
+  function updateLayout(key, value) {
+    setBadgeLayout((prev) => {
+      const fallback = typeof prev[key] === "number" ? prev[key] : defaultLayout[key];
+      const nextVal = clampNumber(value, layoutLimits[key], fallback);
+      return { ...prev, [key]: nextVal };
+    });
+  }
+
+  function resetLayout() {
+    setBadgeLayout(defaultLayout);
+  }
+
   function handleSelectRow(item, e) {
     const action = e.target.getAttribute("data-action");
     if (action === "print") {
@@ -566,14 +657,27 @@ export default function Home() {
     lastDelta > 0 ? ` (+${lastDelta} new)` : ""
   } | Total seen: ${maxSeen} | Selected: ${selectedIds.size}`;
   const tableTitle = activeTab === "VISITOR" ? "Visitors" : `${activeTab.toLowerCase()}s`;
-  const badgeOverlayStyles = {
-    top: "50%",
-    left: "50%",
-    transform: "translate(-50%, -50%)",
-    width: "82%",
-  };
+  const badgeOverlayStyles = useMemo(
+    () => ({
+      top: `${badgeLayout.top}%`,
+      left: `${badgeLayout.left}%`,
+      transform: `translate(${badgeLayout.offsetX}%, ${badgeLayout.offsetY}%)`,
+      width: `${badgeLayout.width}%`,
+      gap: `${badgeLayout.gap}px`,
+    }),
+    [badgeLayout]
+  );
   const statusColor =
     statusTone === "error" ? "text-rose-300" : statusTone === "success" ? "text-emerald-200" : "text-white/80";
+  const layoutControls = [
+    { key: "top", label: "Vertical (%)", min: 0, max: 100, step: 0.5, suffix: "%" },
+    { key: "left", label: "Horizontal (%)", min: 0, max: 100, step: 0.5, suffix: "%" },
+    { key: "offsetX", label: "Translate X (%)", min: -150, max: 150, step: 1, suffix: "%" },
+    { key: "offsetY", label: "Translate Y (%)", min: -150, max: 150, step: 1, suffix: "%" },
+    { key: "width", label: "Content width (%)", min: 30, max: 120, step: 1, suffix: "%" },
+    { key: "gap", label: "Line gap (px)", min: 0, max: 40, step: 1, suffix: "px" },
+    { key: "qr", label: "QR size (px)", min: 80, max: 260, step: 2, suffix: "px" },
+  ];
 
   function downloadTemplate() {
     const headers = ["id", "name", "company", "email", "category", "status", "job_title"];
@@ -709,6 +813,7 @@ export default function Home() {
                     <option value="SPEAKER">Speaker</option>
                     <option value="ORGANIZER">Organizer</option>
                     <option value="STAFF">Staff</option>
+                    <option value="EVENT CREW">Event Crew</option>
                   </select>
                   <span className="text-xs text-white/70">Applied to imported rows</span>
                 </div>
@@ -720,44 +825,13 @@ export default function Home() {
                 >
                   Download CSV template
                 </button>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3 text-sm text-white/80">
-                  <label className="flex flex-col">
-                    <span>Offset X (%)</span>
-                    <input
-                      type="number"
-                      value={offsetX}
-                      step="0.5"
-                      min="40"
-                      max="60"
-                      onChange={(e) => setOffsetX(parseFloat(e.target.value) || 48)}
-                      className="mt-1 rounded-lg px-2 py-1 text-textmain"
-                    />
-                  </label>
-                  <label className="flex flex-col">
-                    <span>Offset Y (%)</span>
-                    <input
-                      type="number"
-                      value={offsetY}
-                      step="0.5"
-                      min="40"
-                      max="60"
-                      onChange={(e) => setOffsetY(parseFloat(e.target.value) || 50)}
-                      className="mt-1 rounded-lg px-2 py-1 text-textmain"
-                    />
-                  </label>
-                  <label className="flex flex-col">
-                    <span>QR size (cm)</span>
-                    <input
-                      type="number"
-                      value={qrSizeCm}
-                      step="0.1"
-                      min="2"
-                      max="5"
-                      onChange={(e) => setQrSizeCm(parseFloat(e.target.value) || 3.6)}
-                      className="mt-1 rounded-lg px-2 py-1 text-textmain"
-                    />
-                  </label>
-                </div>
+                <button
+                  type="button"
+                  className="mt-2 w-full bg-white/10 text-white font-semibold rounded-xl px-3 py-2 border border-white/20 hover:bg-white/15 transition"
+                  onClick={exportOffline}
+                >
+                  Export offline data (all categories on this device)
+                </button>
               </div>
             </div>
 
@@ -813,6 +887,58 @@ export default function Home() {
                 </div>
               </div>
             )}
+
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <p className="text-sm font-semibold m-0">Badge layout controls</p>
+                <button
+                  type="button"
+                  onClick={resetLayout}
+                  className="text-xs px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white hover:bg-white/15 transition"
+                >
+                  Reset to default
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                {layoutControls.map((ctl) => (
+                  <label
+                    key={ctl.key}
+                    className="flex flex-col gap-2 bg-white/5 rounded-xl px-3 py-3 border border-white/10"
+                  >
+                    <div className="flex items-center justify-between text-xs text-white/80">
+                      <span>{ctl.label}</span>
+                      <span className="font-semibold">
+                        {badgeLayout[ctl.key]}
+                        {ctl.suffix}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range"
+                        min={ctl.min}
+                        max={ctl.max}
+                        step={ctl.step}
+                        value={badgeLayout[ctl.key]}
+                        onChange={(e) => updateLayout(ctl.key, Number(e.target.value))}
+                        className="flex-1 accent-magenta"
+                      />
+                      <input
+                        type="number"
+                        min={ctl.min}
+                        max={ctl.max}
+                        step={ctl.step}
+                        value={badgeLayout[ctl.key]}
+                        onChange={(e) => updateLayout(ctl.key, Number(e.target.value))}
+                        className="w-20 bg-white text-textmain border border-black/10 rounded-lg px-2 py-1 text-sm"
+                      />
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-white/60 mt-2">
+                Adjust these sliders to move badge text/QR on both the preview and printed layout. Settings save locally.
+              </p>
+            </div>
 
           </div>
         </section>
@@ -1034,7 +1160,7 @@ export default function Home() {
                 <div
                   id="preview-qr"
                   className="bg-white p-2 rounded-lg grid place-items-center mx-auto"
-                  style={{ width: Math.round(qrSizeCm * 37.8) + "px", height: Math.round(qrSizeCm * 37.8) + "px" }}
+                  style={{ width: `${badgeLayout.qr}px`, height: `${badgeLayout.qr}px` }}
                 ></div>
               </div>
             </div>
@@ -1062,6 +1188,22 @@ export default function Home() {
       <div id="print-area" ref={printAreaRef}></div>
     </>
   );
+}
+
+function clampNumber(value, bounds = [], fallback = 0) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  const [min, max] = bounds.length === 2 ? bounds : [Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY];
+  return Math.min(max, Math.max(min, num));
+}
+
+function normalizeLayout(raw) {
+  if (!raw || typeof raw !== "object") return defaultLayout;
+  const next = { ...defaultLayout };
+  Object.keys(layoutLimits).forEach((key) => {
+    next[key] = clampNumber(raw[key], layoutLimits[key], defaultLayout[key]);
+  });
+  return next;
 }
 
 function escapeHtml(str) {
